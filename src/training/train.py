@@ -12,7 +12,7 @@ from sklearn.metrics import mean_squared_error
 import xgboost as xgb
 
 from training.data import load_raw, clean_city, merge
-from training.features import add_features, add_targets, split, FEATURE_COLS, HORIZONS
+from training.features import prepare_horizon_dataset, split, FEATURE_COLS, HORIZONS
 from training.evaluate import compute_metrics
 from utils.db import get_engine
 from config import CITIES
@@ -24,18 +24,6 @@ EXPERIMENT = "air_quality_pm10"
 N_TRIALS = 50
 
 
-def build_dataset() -> dict[str, pd.DataFrame]:
-    engine = get_engine()
-    aq, weather = load_raw(engine)
-    engine.dispose()
-
-    city_dfs = {}
-    for city in CITIES:
-        cleaned = clean_city(aq, city)
-        merged = merge(cleaned, weather)
-        featured = add_features(merged)
-        city_dfs[city] = add_targets(featured)
-    return city_dfs
 
 
 def tune_xgb(X_train, y_train, X_val, y_val) -> dict:
@@ -107,11 +95,15 @@ def run():
     mlflow.set_experiment(EXPERIMENT)
     client = mlflow.tracking.MlflowClient()
 
-    city_dfs = build_dataset()
+    engine = get_engine()
+    aq, weather = load_raw(engine)
+    engine.dispose()
 
     for city in CITIES:
-        df = city_dfs[city]
+        cleaned = clean_city(aq, city)
+        merged = merge(cleaned, weather)
         for h in HORIZONS:
+            df = prepare_horizon_dataset(merged, h)
             with mlflow.start_run(run_name=f"{city}_horizon_{h}d") as active_run:
                 mlflow.set_tag("city", city)
                 mlflow.set_tag("horizon", f"{h}d")

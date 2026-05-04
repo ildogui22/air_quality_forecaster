@@ -35,6 +35,11 @@ HORIZONS = list(range(1, 8))
 TRAIN_END = "2022-12-31"
 VALIDATION_END = "2023-12-31"
 
+# All weather-derived columns that should be shifted to the target date
+WEATHER_DERIVED_COLS = WEATHER_COLS + WEATHER_LAG_COLS + [
+    "wind_x_cloud", "temp_x_humidity", "precip_x_wind", "snow_x_temp",
+]
+
 
 def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
@@ -75,6 +80,39 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df["precip_x_wind_lag_3d"] = df.groupby("city")["precip_x_wind"].shift(3)
 
     return df
+
+
+def prepare_horizon_dataset(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
+    """
+    Build a training-ready DataFrame for a specific forecast horizon.
+
+    After computing features for each date D:
+    - Weather features and their lags are shifted forward by `horizon` days,
+      so the model sees the weather on the target date D+h (not today).
+    - PM10 lags stay anchored at D — they reflect what is known at forecast time.
+    - Seasonality is recomputed directly from the target date D+h.
+
+    This makes training consistent with inference, where forecast weather is
+    used for each target date while PM10 lags always come from today.
+    """
+    featured = add_features(df)
+    result = featured.copy()
+
+    for col in WEATHER_DERIVED_COLS:
+        if col in result.columns:
+            result[col] = result.groupby("city")[col].shift(-horizon)
+
+    target_date = result["date"] + pd.Timedelta(days=horizon)
+    result["month"] = target_date.dt.month
+    result["year"] = target_date.dt.year
+    result["day_of_week"] = target_date.dt.dayofweek
+    result["day_of_year_sin"] = np.sin(2 * np.pi * target_date.dt.dayofyear / 365)
+    result["day_of_year_cos"] = np.cos(2 * np.pi * target_date.dt.dayofyear / 365)
+    result["day_of_week_sin"] = np.sin(2 * np.pi * result["day_of_week"] / 7)
+    result["day_of_week_cos"] = np.cos(2 * np.pi * result["day_of_week"] / 7)
+
+    result[f"target_{horizon}d"] = result.groupby("city")["pm10"].shift(-horizon)
+    return result.dropna(subset=FEATURE_COLS + [f"target_{horizon}d"])
 
 
 def add_targets(df: pd.DataFrame, horizons: list[int] = None) -> pd.DataFrame:
