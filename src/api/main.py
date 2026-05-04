@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from dotenv import load_dotenv
 
@@ -14,6 +15,13 @@ from api.schemas import ForecastPoint, HistoryPoint, QueryResponse
 load_dotenv()
 
 app = FastAPI(title="Air Quality Forecaster API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
 
 @app.get("/forecast/{city}", response_model=list[ForecastPoint])
 def get_forecast(city: str):
